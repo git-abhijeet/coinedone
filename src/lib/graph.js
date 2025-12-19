@@ -7,6 +7,14 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
 /* ============================================================
+   OBJECTIVE 4 — SOFT CLOSE DETECTION (MINIMAL)
+   ============================================================ */
+
+function shouldTriggerSoftClose({ recommendation, stayYears }) {
+    return recommendation === "buy" && typeof stayYears === "number" && stayYears >= 5;
+}
+
+/* ============================================================
    SYSTEM PROMPT - LLM AS BRAIN
    ============================================================ */
 
@@ -24,6 +32,11 @@ Your job:
 3. When you have ALL required info (stay duration, price, down payment, rent), call the calculate_mortgage tool
 4. If user asks to change ANY parameter (tenure, down payment, etc.), immediately recalculate by calling the tool again with updated values
 5. If user asks "how did you calculate?", call the explain_calculation tool
+6. **IMPORTANT - Soft Close Response:** If you previously showed a "Next Step" / pre-qualification offer and the user accepts it (e.g., "yes", "okay", "sure", "that's fine"), do NOT repeat the calculation. Instead, provide a brief pre-approval summary with actionable next steps like:
+   - Mention they should gather documents (Emirates ID, salary certificate, bank statements)
+   - Suggest contacting 2-3 UAE banks for rate comparison
+   - Offer to help with any other mortgage questions
+   - DO NOT ask them again if they want pre-qualification - they already said yes
 
 Rules:
 - Assume all money values are in AED unless stated otherwise
@@ -33,6 +46,7 @@ Rules:
 - Be conversational and friendly
 - Do NOT do any math yourself - always use the tools
 - Ask for missing information naturally
+- Pay attention to conversation flow - if user accepted an offer, move forward, don't repeat
 
 Current conversation context will be provided in messages.`;
 
@@ -253,6 +267,21 @@ async function agentNode(state) {
             const resultData = JSON.parse(toolResult);
             const { emi, recommendation, inputs } = resultData;
 
+            // ------------------------------------------------------------
+            // OBJECTIVE 4 — SOFT CLOSE (BARE MINIMUM)
+            // ------------------------------------------------------------
+            // Determine whether to show a single soft-close CTA to the user.
+            // Rule: if recommendation is "buy" and stayYears >= 5, trigger CTA.
+            const triggerClose = shouldTriggerSoftClose({
+                recommendation: recommendation.recommendation,
+                stayYears: inputs.stayYears,
+            });
+
+            let softCloseCTA = "";
+            if (triggerClose) {
+                softCloseCTA = `\n\n---\n\n### ✅ Next Step\n\nBased on your income and stay duration, you are **financially suited to buy** rather than rent.\n\nI can pre-qualify you for a home in the **AED ${(inputs.price / 1_000_000).toFixed(1)}M range** and generate a **pre-approval summary** for you.\n\n👉 **Would you like me to do that next?**`;
+            }
+
             // Calculate total interest and total amount paid
             const totalMonths = inputs.tenureYears * 12;
             const totalAmountPaid = emi.monthlyEmi * totalMonths;
@@ -317,6 +346,9 @@ FORMATTING INSTRUCTIONS:
             finalContent = typeof formattedResponse.content === "string"
                 ? formattedResponse.content
                 : formattedResponse.content?.[0]?.text || JSON.stringify(formattedResponse.content);
+
+            // Append the minimal soft-close CTA when triggered.
+            finalContent = finalContent + softCloseCTA;
 
             console.log("🟡 [LLM FORMATTED] Response formatted naturally");
         } catch (e) {

@@ -7,6 +7,14 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
 /* ============================================================
+   OBJECTIVE 4 — SOFT CLOSE DETECTION (MINIMAL)
+   ============================================================ */
+
+function shouldTriggerSoftClose({ recommendation, stayYears }) {
+    return recommendation === "buy" && typeof stayYears === "number" && stayYears >= 5;
+}
+
+/* ============================================================
    SYSTEM PROMPT - LLM AS BRAIN
    ============================================================ */
 
@@ -24,6 +32,11 @@ Your job:
 3. When you have ALL required info (stay duration, price, down payment, rent), call the calculate_mortgage tool
 4. If user asks to change ANY parameter (tenure, down payment, etc.), immediately recalculate by calling the tool again with updated values
 5. If user asks "how did you calculate?", call the explain_calculation tool
+6. **IMPORTANT - Soft Close Response:** If you previously showed a "Next Step" / pre-qualification offer and the user accepts it (e.g., "yes", "okay", "sure", "that's fine"), do NOT repeat the calculation. Instead, provide a brief pre-approval summary with actionable next steps like:
+   - Mention they should gather documents (Emirates ID, salary certificate, bank statements)
+   - Suggest contacting 2-3 UAE banks for rate comparison
+   - Offer to help with any other mortgage questions
+   - DO NOT ask them again if they want pre-qualification - they already said yes
 
 Rules:
 - Assume all money values are in AED unless stated otherwise
@@ -33,6 +46,7 @@ Rules:
 - Be conversational and friendly
 - Do NOT do any math yourself - always use the tools
 - Ask for missing information naturally
+- Pay attention to conversation flow - if user accepted an offer, move forward, don't repeat
 
 Current conversation context will be provided in messages.`;
 
@@ -249,26 +263,54 @@ async function agentNode(state) {
 
         // Let LLM format the response naturally based on conversation context
         let finalContent;
-        try {
-            const resultData = JSON.parse(toolResult);
-            const { emi, recommendation, inputs } = resultData;
 
-            // Calculate total interest and total amount paid
-            const totalMonths = inputs.tenureYears * 12;
-            const totalAmountPaid = emi.monthlyEmi * totalMonths;
-            const totalInterest = totalAmountPaid - emi.loanAmount;
-            const totalCost = inputs.downPayment + emi.upfrontCostEstimate + totalAmountPaid;
+        // If tool was explain_calculation, just return the text directly
+        if (functionCall.name === "explain_calculation") {
+            finalContent = toolResult;
+        } else {
+            // For calculate_mortgage, parse JSON and format
+            try {
+                const resultData = JSON.parse(toolResult);
+                const { emi, recommendation, inputs } = resultData;
 
-            // Calculate actual down payment (may be adjusted for LTV)
-            const minDownPayment = inputs.price * 0.2; // 20% for 80% LTV
-            const actualDownPayment = Math.max(inputs.downPayment, minDownPayment);
-            const wasAdjusted = emi.issues && emi.issues.includes('down_payment_adjusted_to_meet_ltv');
+                // ------------------------------------------------------------
+                // OBJECTIVE 4 — SOFT CLOSE (BARE MINIMUM)
+                // ------------------------------------------------------------
+                // Determine whether to show a single soft-close CTA to the user.
+                // Rule: if recommendation is "buy" and stayYears >= 5, trigger CTA.
+                const triggerClose = shouldTriggerSoftClose({
+                    recommendation: recommendation.recommendation,
+                    stayYears: inputs.stayYears,
+                });
 
-            // Create a data summary for the LLM to format naturally
-            const dataSummary = `
+                let softCloseCTA = "";
+                if (triggerClose) {
+                    softCloseCTA = `\n\n---\n\n### ✅ Next Step\n\nBased on your income and stay duration, you are **financially suited to buy** rather than rent.\n\nI can pre-qualify you for a home in the **AED ${(inputs.price / 1_000_000).toFixed(1)}M range** and generate a **pre-approval summary** for you.\n\n👉 **Would you like me to do that next?**`;
+                }
+
+                // Calculate total interest and total amount paid
+                const totalMonths = inputs.tenureYears * 12;
+                const totalAmountPaid = emi.monthlyEmi * totalMonths;
+                const totalInterest = totalAmountPaid - emi.loanAmount;
+                const totalCost = inputs.downPayment + emi.upfrontCostEstimate + totalAmountPaid;
+
+                // 🔥 OBJECTIVE 3: Rent Opportunity Cost Calculation
+                const totalRentPaid = inputs.rent * 12 * inputs.stayYears;
+                const rentLossNarrative = recommendation.recommendation === "buy"
+                    ? `\n\n💸 **Rent Opportunity Cost:**\n- Renting for ${inputs.stayYears} years at AED ${inputs.rent.toLocaleString()}/month = **AED ${totalRentPaid.toLocaleString()} total**\n- Zero equity built (like burning ${Math.floor(totalRentPaid / 350_000)} Ferrari(s) 🔥)\n- Buying converts this into **your** property equity.`
+                    : "";
+
+                // Calculate actual down payment (may be adjusted for LTV)
+                const minDownPayment = inputs.price * 0.2; // 20% for 80% LTV
+                const actualDownPayment = Math.max(inputs.downPayment, minDownPayment);
+                const wasAdjusted = emi.issues && emi.issues.includes('down_payment_adjusted_to_meet_ltv');
+
+                // Create a data summary for the LLM to format naturally
+                const dataSummary = `
 Tool Result Data:
 - Recommendation: ${recommendation.recommendation.toUpperCase()}
 - Rationale: ${recommendation.rationale}
+${rentLossNarrative}
 
 IMPORTANT ASSUMPTIONS (state these clearly in your response):
 - Interest Rate: 4.5% per year (typical UAE mortgage rate)
@@ -306,22 +348,26 @@ FORMATTING INSTRUCTIONS:
 5. Be conversational and natural - explain the numbers like a helpful advisor
 6. Always include the disclaimer at the end`;
 
-            console.log("🟡 [LLM CALL] Asking LLM to format response naturally based on context...");
-            const formattingMessages = [
-                { role: "system", content: SYSTEM_PROMPT },
-                ...messagesToSend.slice(1), // Skip original system prompt
-                { role: "human", content: dataSummary }
-            ];
+                console.log("🟡 [LLM CALL] Asking LLM to format response naturally based on context...");
+                const formattingMessages = [
+                    { role: "system", content: SYSTEM_PROMPT },
+                    ...messagesToSend.slice(1), // Skip original system prompt
+                    { role: "human", content: dataSummary }
+                ];
 
-            const formattedResponse = await llm.invoke(formattingMessages);
-            finalContent = typeof formattedResponse.content === "string"
-                ? formattedResponse.content
-                : formattedResponse.content?.[0]?.text || JSON.stringify(formattedResponse.content);
+                const formattedResponse = await llm.invoke(formattingMessages);
+                finalContent = typeof formattedResponse.content === "string"
+                    ? formattedResponse.content
+                    : formattedResponse.content?.[0]?.text || JSON.stringify(formattedResponse.content);
 
-            console.log("🟡 [LLM FORMATTED] Response formatted naturally");
-        } catch (e) {
-            console.error("Error formatting response:", e);
-            finalContent = `I've calculated your mortgage details. Here's the result:\n\n${toolResult}`;
+                // Append the minimal soft-close CTA when triggered.
+                finalContent = finalContent + softCloseCTA;
+
+                console.log("🟡 [LLM FORMATTED] Response formatted naturally");
+            } catch (e) {
+                console.error("Error formatting response:", e);
+                finalContent = `I've calculated your mortgage details. Here's the result:\n\n${toolResult}`;
+            }
         }
 
         return {

@@ -114,3 +114,14 @@ npm run dev
 
 
 Open: http://localhost:3000/chat
+
+---
+
+## Phase 2 — The Vault & The Closer (concise)
+
+- **Vision intake**: Accept salary slip image/PDF upload and auto-extract salary components via vision/OCR so users do not type numbers.
+- **Privacy firewall**: Redact PII (name, IBAN, passport, email, phone, IDs) before any reasoning LLM sees data; keep only sanitized financial figures.
+- **Opportunity-cost narrative**: Deterministic rent-vs-buy math that quantifies “rent burned” vs equity (e.g., 140k AED/yr rent → 700k AED over 5y) and pairs with EMI/LTV outputs.
+- **Soft close**: Detect when the user is convinced and trigger lead capture with a clear CTA (e.g., pre-qualify and next steps) instead of endless chat.
+- **Data flow**: Upload → Vision extract → Local scrub/gate → Reasoning LLM (numbers only) → Calculation tools → Persuasive summary + CTA.
+- **Deliverables focus**: Live prototype with upload and rent-vs-buy logic, 5-min architecture walkthrough (privacy + data flow), clean repo highlighting PII handling.

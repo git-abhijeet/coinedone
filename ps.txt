@@ -1,0 +1,79 @@
+CoinedOne Founder’s Office: Phase 2
+Challenge
+"The Vault & The Closer"
+Role: AI Engineer (Founder’s Office)
+Timeline: +48 Hours from acknowledgment.
+1. The Context
+Your first prototype proved you can use LLMs to communicate. Now, you must prove you can
+use them to sell securely.
+Real estate decisions involve sensitive documents (Salary Slips, Bank Statements) and high
+anxiety ("Am I making a mistake?").
+Your current system likely has two fatal flaws:
+1. It’s a Security Risk: Sending raw financial text to a public LLM API is a privacy violation.
+2. It’s Passive: It waits for questions instead of driving the user toward a decision.
+2. The 4 Objectives (MECE)
+You have 48 hours to upgrade your prototype. You must hit all four objectives below.
+Objective 1: The "Vision" Integration (Frictionless Input)
+Users hate typing. They will not manually enter "Basic Salary," "Housing Allowance," and
+"Deductions."
+● The Task: Allow the user to upload a mock document (e.g., a simple image or PDF of a
+Salary Slip).
+● The Requirement: Your system must use a Vision model (like GPT-4o, Claude 3.5 Sonnet,
+or an open-source OCR tool) to extract the relevant financial variables automatically.
+● The UX: The bot should say, "Don't worry about typing. Just upload your salary slip, and
+I'll run the numbers."
+Objective 2: The "Privacy Firewall" (Security Architecture)
+This is the most critical engineering test. We are dealing with PII (Personally
+Identifiable Information).
+If a user uploads a document containing their Name, IBAN, or Passport Number, and you send
+that raw data to an external LLM provider for general chat, you fail.
+● The Task: Architect a privacy layer.● The Requirement:
+○ Redaction: You must demonstrate a method to detect and redact/anonymize PII
+before it hits the reasoning model.
+○ Separation of Concerns: The LLM needs to know the numbers (Income: 20k), not
+the identity (Name: Ahmed, IBAN: AE000...).
+○ Note: We don't expect enterprise-grade DLP in 48 hours, but we expect a functional
+implementation (Regex, NER, or Local PII models like Glínêr/Presidio) that proves you
+take security seriously.
+Objective 3: The "Rent vs. Buy" Engine (Commercial Logic)
+A calculator gives a number. A Founder's Office Engineer builds a narrative.
+● The Task: Implement a deterministic "Opportunity Cost" calculation.
+● The Requirement:
+○ If the user is renting, the bot must mathematically demonstrate the loss.
+○ Bad Output: "Buying might be better."
+○ Good Output: "You are currently paying 140,000 AED/year in rent. Over the next 5
+years, that is 700,000 AED—essentially burning a Ferrari. If you buy, that money
+builds equity. Here is the chart."
+Objective 4: The "Closer" (Conversion Orchestration)
+Your goal is not to chat forever. It is to get the user to the next stage.
+● The Task: The conversation must culminate in a "Soft Close."
+● The Requirement:
+○ The bot must detect when the user is convinced (based on sentiment or flow).
+○ It must trigger a specific Lead Capture event.
+○ Example: "Based on your salary of 25k and the current market rates, you are
+pre-qualified for a 1.5M AED home in JVC. Shall I generate your Pre-Approval
+Certificate now?"
+3. Deliverables
+We are not just looking at code; we are looking at your thinking process.
+1. The Evolved Prototype (Live Link)
+● Must handle a file upload.
+● Must demonstrate the "Rent vs. Buy" logic.
+● Must attempt to capture the lead.
+2. The Architecture Walkthrough (Loom Video - Mandatory)● Time Limit: 5 Minutes Max.
+● The "Black Box" Reveal:
+○ Privacy: Show us the code/logic that protects the PII. How are you scrubbing the
+data?
+○ Data Flow: Explain how the data moves from Upload -> Extraction -> Calculation ->
+Persuasion.
+○ The Stack: Why did you choose these specific tools/models?
+3. The Repo
+● Clean, readable code. We will check your PII handling logic specifically.
+4. Evaluation Criteria
+We will grade this submission on the following weightage:
+● Security & Architecture (35%): Did you lazily send user secrets to the cloud, or did you
+build a vault?
+● Product Thinking (35%): Does the bot actually sell the value of buying, or is it just a
+passive tool?
+● Engineering Velocity (20%): How much functionality did you ship in this short sprint?
+● UX/Polish (10%): Is the flow smooth?
+Good luck. Build something you’d trust with your own bank details.

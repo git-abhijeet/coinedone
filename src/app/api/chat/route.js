@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import jwt from "jsonwebtoken";
 import { runConversationTurn } from "@/lib/graph";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const runtime = "nodejs"; // Gemini requires Node.js runtime, not Edge
 
@@ -23,11 +24,29 @@ export async function POST(req) {
             return NextResponse.json({ error: "server_misconfigured" }, { status: 500 });
         }
         const body = await req.json();
-        const { messages } = body || {};
+        const { messages, file } = body || {};
         console.log("🚀 ~ POST ~ messages:", messages)
         console.log(`[Chat] Messages count: ${Array.isArray(messages) ? messages.length : 0}`);
         if (!Array.isArray(messages)) {
             return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
+        }
+
+        if (file) {
+            console.log("[Chat] File uploaded, processing with Gemini Vision");
+            // Process file with Gemini Vision
+            const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+            const model = genAI.getGenerativeModel({ model: process.env.GEMINI_VISION_MODEL || "gemini-1.5-flash" });
+            const imagePart = {
+                inlineData: {
+                    data: file.data,
+                    mimeType: file.mimeType,
+                },
+            };
+            const prompt = "Extract all visible text from this document.";
+            const result = await model.generateContent([prompt, imagePart]);
+            const extractedText = result.response.text();
+            console.log("[Chat] Extracted text length:", extractedText.length);
+            return NextResponse.json({ message: { role: "assistant", content: extractedText } });
         }
 
         // Timeout wrapper to prevent long-running requests

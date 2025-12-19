@@ -5,9 +5,15 @@ import { useRouter } from "next/navigation";
 export default function Chat() {
     const router = useRouter();
     const [messages, setMessages] = useState([
-        { role: "assistant", content: "Hi! I’m your mortgage buddy. Tell me anything." },
+        {
+            role: "assistant",
+            content:
+                "Hi! I’m your mortgage buddy. Tell me anything.\n\nDon’t worry about typing — just upload your salary slip (image or PDF) and I’ll extract the numbers for you."
+        },
     ]);
+
     const [input, setInput] = useState("");
+    const [file, setFile] = useState(null);
     const [sending, setSending] = useState(false); const [typingMessageIndex, setTypingMessageIndex] = useState(null);
     const [displayedContent, setDisplayedContent] = useState({});
     const listEndRef = useRef(null);
@@ -51,8 +57,8 @@ export default function Chat() {
     const sendMessage = (e) => {
         e.preventDefault();
         const text = input.trim();
-        if (!text) return;
-        setMessages((prev) => [...prev, { role: "user", content: text }]);
+        if (!text && !file) return;
+        setMessages((prev) => [...prev, { role: "user", content: text || "Uploaded file" }]);
         setInput("");
         setSending(true);
 
@@ -60,38 +66,57 @@ export default function Chat() {
         const thinkingIndex = messages.length + 1;
         setMessages((prev) => [...prev, { role: "assistant", content: "..." }]);
 
-        // Call backend API
-        fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages: [...messages, { role: "user", content: text }] }),
-        })
-            .then(async (res) => {
-                const data = await res.json();
-                const msg = data?.message || { role: "assistant", content: "(No response)" };
-
-                // Replace the "thinking" message with the actual response
-                setMessages((prev) => {
-                    const updated = [...prev];
-                    updated[updated.length - 1] = msg;
-                    return updated;
-                });
-
-                // Trigger typing animation for the new message
-                setTypingMessageIndex(thinkingIndex);
+        const sendToAPI = (text, fileData, mimeType) => {
+            console.log("Sending to API", { text, hasFile: !!fileData });
+            fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ messages: [...messages, { role: "user", content: text }], file: fileData ? { data: fileData, mimeType } : null }),
             })
-            .catch(() => {
-                setMessages((prev) => {
-                    const updated = [...prev];
-                    updated[updated.length - 1] = {
-                        role: "assistant",
-                        content: "Oops, something went wrong hitting the backend."
-                    };
-                    return updated;
-                });
-                setTypingMessageIndex(thinkingIndex);
-            })
-            .finally(() => setSending(false));
+                .then(async (res) => {
+                    console.log("Fetch response status:", res.status);
+                    const data = await res.json();
+                    console.log("Response data:", data);
+                    const msg = data?.message || { role: "assistant", content: "(No response)" };
+
+                    // Replace the "thinking" message with the actual response
+                    setMessages((prev) => {
+                        const updated = [...prev];
+                        updated[updated.length - 1] = msg;
+                        return updated;
+                    });
+
+                    // Trigger typing animation for the new message
+                    setTypingMessageIndex(thinkingIndex);
+                })
+                .catch((error) => {
+                    console.log("Fetch error:", error);
+                    setMessages((prev) => {
+                        const updated = [...prev];
+                        updated[updated.length - 1] = {
+                            role: "assistant",
+                            content: "Oops, something went wrong hitting the backend."
+                        };
+                        return updated;
+                    });
+                    setTypingMessageIndex(thinkingIndex);
+                })
+                .finally(() => setSending(false));
+        };
+
+        // Read file as base64 if present
+        let fileData = null;
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                fileData = reader.result.split(',')[1]; // Get base64 part
+                sendToAPI(text, fileData, file.type);
+            };
+            reader.readAsDataURL(file);
+            setFile(null);
+        } else {
+            sendToAPI(text, null, null);
+        }
     };
 
     const handleLogout = async () => {
@@ -118,7 +143,7 @@ export default function Chat() {
                 </div>
                 <button
                     onClick={handleLogout}
-                    className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    className="cursor-pointer rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                     aria-label="Logout"
                 >
                     Logout
@@ -166,28 +191,66 @@ export default function Chat() {
             </section>
 
             <form onSubmit={sendMessage} className="mt-4 flex gap-2">
-                <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            sendMessage(e);
-                        }
-                    }}
-                    placeholder="Type a message… (Shift+Enter for new line)"
-                    aria-label="Chat message input"
-                    className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 resize-none"
-                    rows={1}
-                    style={{ minHeight: "2.5rem", maxHeight: "10rem" }}
-                    onInput={(e) => {
-                        e.target.style.height = "2.5rem";
-                        e.target.style.height = e.target.scrollHeight + "px";
-                    }}
+                <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => setFile(e.target.files[0])}
+                    className="hidden"
+                    id="file-upload"
                 />
+                <div className="flex-1 relative">
+                    <textarea
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                sendMessage(e);
+                            }
+                        }}
+                        placeholder="Type a message… (Shift+Enter for new line)"
+                        aria-label="Chat message input"
+                        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 pr-10 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 resize-none"
+                        rows={1}
+                        style={{ minHeight: "2.5rem", maxHeight: "10rem" }}
+                        onInput={(e) => {
+                            e.target.style.height = "2.5rem";
+                            e.target.style.height = e.target.scrollHeight + "px";
+                        }}
+                    />
+                    <button
+                        type="button"
+                        onClick={() => document.getElementById('file-upload').click()}
+                        className="cursor-pointer absolute right-2 top-2 text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                        aria-label="Upload file"
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                        </svg>
+                    </button>
+                </div>
+                {file && (
+                    <div className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14,2 14,8 20,8" />
+                        </svg>
+                        <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate max-w-32">{file.name}</span>
+                        <button
+                            onClick={() => setFile(null)}
+                            className="cursor-pointer text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                            aria-label="Remove file"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18" />
+                                <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                        </button>
+                    </div>
+                )}
                 <button
                     type="submit"
-                    className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    className="cursor-pointer rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
                     disabled={sending}
                     aria-busy={sending}
                 >
